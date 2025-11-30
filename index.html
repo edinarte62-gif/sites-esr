@@ -97,14 +97,30 @@
         
         console.log("Firebase conectado.");
 
-        // --- Constants & Types ---
+        // --- Constants & Utilities ---
         const TransactionType = {
             INVESTMENT_LIQUIDITY: 'Investimento com Liquidez',
             INVESTMENT_FIXED: 'Investimento sem Liquidez'
         };
 
+        // Robust formatter: Handles nulls, undefined, and strings
         const formatCurrency = (value) => {
-            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+            try {
+                const numberVal = Number(value);
+                if (isNaN(numberVal)) return 'R$ 0,00';
+                return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numberVal);
+            } catch (e) {
+                return 'R$ 0,00';
+            }
+        };
+
+        // Robust parser: Converts user input "1.250,50" -> 1250.50 (float)
+        const parseCurrencyInput = (value) => {
+            if (!value) return 0;
+            // Remove everything that isn't a digit
+            const digits = value.replace(/\D/g, '');
+            // Divide by 100 to get decimal
+            return Number(digits) / 100;
         };
 
         // --- Components: Icons ---
@@ -174,16 +190,25 @@
 
         // --- Component: Dashboard ---
         const Dashboard = ({ summary, recentTransactions, user }) => {
-            const data = [
-                { name: 'Liquidez', value: summary.totalLiquidity, color: '#10b981' },
-                { name: 'Sem Liquidez', value: summary.totalFixedInvest, color: '#f59e0b' },
-            ].filter(d => d.value > 0);
+            // Error Boundary for Calculation Logic
+            let data = [], lockedBalance = 0, availableBalance = 0, netWorth = 1, availablePct = 0, lockedPct = 0;
+            
+            try {
+                data = [
+                    { name: 'Liquidez', value: summary.totalLiquidity, color: '#10b981' },
+                    { name: 'Sem Liquidez', value: summary.totalFixedInvest, color: '#f59e0b' },
+                ].filter(d => d.value > 0);
 
-            const lockedBalance = summary.totalFixedInvest;
-            const availableBalance = summary.totalLiquidity;
-            const netWorth = summary.netWorth > 0 ? summary.netWorth : 1;
-            const availablePct = Math.round((availableBalance / netWorth) * 100);
-            const lockedPct = Math.round((lockedBalance / netWorth) * 100);
+                lockedBalance = summary.totalFixedInvest || 0;
+                availableBalance = summary.totalLiquidity || 0;
+                netWorth = summary.netWorth > 0 ? summary.netWorth : 1;
+                
+                // Safe percentage calc
+                availablePct = Math.min(100, Math.round((availableBalance / netWorth) * 100));
+                lockedPct = Math.min(100, Math.round((lockedBalance / netWorth) * 100));
+            } catch (err) {
+                console.error("Dashboard calc error:", err);
+            }
 
             const upcomingRedemptions = recentTransactions
                 .filter(t => t.type === TransactionType.INVESTMENT_FIXED && t.redemptionDate)
@@ -192,8 +217,10 @@
 
             const formatDate = (dateString) => {
                 if(!dateString) return '';
-                const [year, month, day] = dateString.split('-');
-                return `${day}/${month}/${year}`;
+                try {
+                    const [year, month, day] = dateString.split('-');
+                    return `${day}/${month}/${year}`;
+                } catch(e) { return dateString; }
             };
 
             return (
@@ -203,7 +230,7 @@
                             <h1 className="text-xl font-bold text-white tracking-tight leading-tight">Meu Caixa</h1>
                             <p className="text-slate-400 text-xs truncate max-w-[150px]">{user.displayName || user.email}</p>
                         </div>
-                        <button onClick={() => signOut(auth)} className="h-8 w-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                        <button onClick={() => signOut(auth)} className="h-8 w-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors" aria-label="Sair">
                             <Icons.LogOut />
                         </button>
                     </div>
@@ -318,48 +345,53 @@
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [activeType, setActiveType] = useState(null);
             const [editingId, setEditingId] = useState(null);
-            const [amount, setAmount] = useState('');
+            
+            // Local form state
+            const [amountStr, setAmountStr] = useState('');
             const [description, setDescription] = useState('');
             const [redemptionDate, setRedemptionDate] = useState('');
 
             const allowedTypes = [TransactionType.INVESTMENT_LIQUIDITY, TransactionType.INVESTMENT_FIXED];
 
+            // Safe total calc
             const totals = useMemo(() => {
                 const acc = {};
                 allowedTypes.forEach(t => acc[t] = 0);
-                transactions.forEach(t => { if (acc[t.type] !== undefined) acc[t.type] += t.amount; });
+                transactions.forEach(t => { 
+                    const val = Number(t.amount) || 0;
+                    if (acc[t.type] !== undefined) acc[t.type] += val; 
+                });
                 return acc;
             }, [transactions]);
 
             const handleAmountChange = (e) => {
-                let value = e.target.value.replace(/\D/g, '');
-                if (value === '') { setAmount(''); return; }
-                const numberValue = parseInt(value) / 100;
-                setAmount(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numberValue));
-            };
-
-            const parseAmount = (value) => {
-                if (!value) return 0;
-                return parseFloat(value.replace(/\./g, '').replace(',', '.'));
+                const raw = e.target.value.replace(/\D/g, '');
+                if (raw === '') { setAmountStr(''); return; }
+                const numberVal = Number(raw) / 100;
+                setAmountStr(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numberVal));
             };
 
             const handleAddNew = (type) => {
-                setActiveType(type); setEditingId(null); setAmount(''); setDescription(''); setRedemptionDate(''); setIsModalOpen(true);
+                setActiveType(type); setEditingId(null); setAmountStr(''); setDescription(''); setRedemptionDate(''); setIsModalOpen(true);
             };
 
             const handleEdit = (transaction) => {
                 setActiveType(transaction.type);
                 setEditingId(transaction.id);
-                setAmount(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(transaction.amount));
-                setDescription(transaction.description);
+                // Convert stored float back to string for input mask
+                const val = Number(transaction.amount) || 0;
+                setAmountStr(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val));
+                setDescription(transaction.description || '');
                 setRedemptionDate(transaction.redemptionDate || '');
                 setIsModalOpen(true);
             };
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                const numericAmount = parseAmount(amount);
-                if (!numericAmount || !activeType) return;
+                // Parse string "1.250,50" -> Float 1250.50
+                const numericAmount = parseCurrencyInput(amountStr);
+                
+                if (numericAmount <= 0 || !activeType) return;
                 if (activeType === TransactionType.INVESTMENT_FIXED && !redemptionDate) return;
 
                 if (editingId) onEdit(editingId, numericAmount, description, activeType, redemptionDate);
@@ -382,7 +414,8 @@
             };
 
             const isFixedInvestment = activeType === TransactionType.INVESTMENT_FIXED;
-            const isFormValid = amount && (!isFixedInvestment || redemptionDate);
+            const numericVal = parseCurrencyInput(amountStr);
+            const isFormValid = numericVal > 0 && (!isFixedInvestment || redemptionDate);
 
             return (
                 <div className="animate-fade-in space-y-6 pt-2 pb-20">
@@ -455,7 +488,7 @@
                                     )}
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-slate-300">Valor (R$)</label>
-                                        <input type="tel" value={amount} autoFocus onChange={handleAmountChange} placeholder="0,00" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-2xl font-bold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" required />
+                                        <input type="tel" value={amountStr} autoFocus onChange={handleAmountChange} placeholder="0,00" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-2xl font-bold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" required />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-slate-300">Descrição <span className="text-slate-500 text-xs">(Opcional)</span></label>
@@ -489,7 +522,7 @@
                 return () => unsubscribe();
             }, []);
 
-            // Firestore Real-time Listener (Only when logged in)
+            // Firestore Real-time Listener
             useEffect(() => {
                 if (user) {
                     const q = query(
@@ -510,7 +543,12 @@
                 if (!user) return;
                 try {
                     await addDoc(collection(db, 'users', user.uid, 'transactions'), {
-                        amount, description, type, redemptionDate: redemptionDate || null, date: new Date().toISOString().split('T')[0], createdAt: serverTimestamp()
+                        amount, // Saved as float
+                        description, 
+                        type, 
+                        redemptionDate: redemptionDate || null, 
+                        date: new Date().toISOString().split('T')[0], 
+                        createdAt: serverTimestamp()
                     });
                 } catch (e) { alert("Erro ao salvar."); console.error(e); }
             };
@@ -519,7 +557,10 @@
                 if (!user) return;
                 try {
                     await updateDoc(doc(db, 'users', user.uid, 'transactions', id), {
-                        amount, description, type, redemptionDate: redemptionDate || null
+                        amount, // Saved as float
+                        description, 
+                        type, 
+                        redemptionDate: redemptionDate || null
                     });
                 } catch (e) { alert("Erro ao atualizar."); console.error(e); }
             };
@@ -529,9 +570,10 @@
                 try { await deleteDoc(doc(db, 'users', user.uid, 'transactions', id)); } catch (e) { alert("Erro ao excluir."); console.error(e); }
             };
 
+            // Calculate Totals using Error Boundary Logic inside reduce
             const summary = useMemo(() => {
                 return transactions.reduce((acc, t) => {
-                    const val = t.amount;
+                    const val = Number(t.amount) || 0; // Ensure float
                     if (t.type === TransactionType.INVESTMENT_LIQUIDITY) { acc.totalLiquidity += val; acc.netWorth += val; }
                     else if (t.type === TransactionType.INVESTMENT_FIXED) { acc.totalFixedInvest += val; acc.netWorth += val; }
                     return acc;
