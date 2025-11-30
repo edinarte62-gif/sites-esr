@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Meu Caixa</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    animation: { 'fade-in': 'fadeIn 0.5s ease-out', 'fade-in-up': 'fadeInUp 0.3s ease-out' },
+                    keyframes: {
+                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        fadeInUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Import Map -->
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+    "recharts": "https://esm.sh/recharts@2.10.3",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+  }
+}
+</script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { initializeApp } from 'firebase/app';
+        import { 
+            getAuth, 
+            onAuthStateChanged, 
+            GoogleAuthProvider,
+            signInWithPopup,
+            signOut
+        } from 'firebase/auth';
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            doc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            query, 
+            orderBy,
+            serverTimestamp 
+        } from 'firebase/firestore';
+        import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAM3S0v5N542Vu_N5meuz9CqGfjpFEb6nM",
+            authDomain: "financeiro-esr.firebaseapp.com",
+            projectId: "financeiro-esr",
+            storageBucket: "financeiro-esr.firebasestorage.app",
+            messagingSenderId: "555491563512",
+            appId: "1:555491563512:web:81777892a32a0d9a16280d"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        console.log("Firebase conectado.");
+
+        // --- Constants & Types ---
+        const TransactionType = {
+            INVESTMENT_LIQUIDITY: 'Investimento com Liquidez',
+            INVESTMENT_FIXED: 'Investimento sem Liquidez'
+        };
+
+        const formatCurrency = (value) => {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+        };
+
+        // --- Components: Icons ---
+        const Icons = {
+            Home: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+            Wallet: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a2 2 0 0 1-2-2V9"/><path d="M7 15h0"/></svg>,
+            Edit: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>,
+            Trash: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+            Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+            Calendar: () => <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>,
+            LogOut: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>,
+            Google: () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20px" height="20px"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
+        };
+
+        // --- Component: Login Screen ---
+        const LoginScreen = () => {
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleGoogleLogin = async () => {
+                const provider = new GoogleAuthProvider();
+                setError('');
+                setLoading(true);
+                try {
+                    await signInWithPopup(auth, provider);
+                } catch (err) {
+                    console.error(err);
+                    setError('Erro ao entrar com Google. Tente novamente.');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+                    <div className="w-full max-w-sm bg-slate-800 rounded-3xl p-8 border border-slate-700 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+                        <div className="text-center mb-10 relative z-10">
+                            <div className="h-16 w-16 rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center font-bold text-slate-900 shadow-lg shadow-emerald-500/20 text-xl mx-auto mb-6">MC</div>
+                            <h1 className="text-2xl font-bold text-white mb-2">Meu Caixa</h1>
+                            <p className="text-slate-400 text-sm">Controle seu patrimônio</p>
+                        </div>
+                        
+                        <div className="space-y-4 relative z-10">
+                            {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs text-center">{error}</div>}
+                            
+                            <button 
+                                onClick={handleGoogleLogin} 
+                                disabled={loading}
+                                className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+                            >
+                                {loading ? (
+                                    <span className="text-sm">Carregando...</span>
+                                ) : (
+                                    <>
+                                        <Icons.Google />
+                                        <span>Entrar com Google</span>
+                                    </>
+                                )}
+                            </button>
+                            <p className="text-center text-[10px] text-slate-500 mt-6">Ao entrar, seus dados serão sincronizados na nuvem.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Component: Dashboard ---
+        const Dashboard = ({ summary, recentTransactions, user }) => {
+            const data = [
+                { name: 'Liquidez', value: summary.totalLiquidity, color: '#10b981' },
+                { name: 'Sem Liquidez', value: summary.totalFixedInvest, color: '#f59e0b' },
+            ].filter(d => d.value > 0);
+
+            const lockedBalance = summary.totalFixedInvest;
+            const availableBalance = summary.totalLiquidity;
+            const netWorth = summary.netWorth > 0 ? summary.netWorth : 1;
+            const availablePct = Math.round((availableBalance / netWorth) * 100);
+            const lockedPct = Math.round((lockedBalance / netWorth) * 100);
+
+            const upcomingRedemptions = recentTransactions
+                .filter(t => t.type === TransactionType.INVESTMENT_FIXED && t.redemptionDate)
+                .sort((a, b) => new Date(a.redemptionDate).getTime() - new Date(b.redemptionDate).getTime())
+                .slice(0, 2);
+
+            const formatDate = (dateString) => {
+                if(!dateString) return '';
+                const [year, month, day] = dateString.split('-');
+                return `${day}/${month}/${year}`;
+            };
+
+            return (
+                <div className="space-y-3 animate-fade-in pb-2">
+                    <div className="flex justify-between items-center px-1">
+                        <div>
+                            <h1 className="text-xl font-bold text-white tracking-tight leading-tight">Meu Caixa</h1>
+                            <p className="text-slate-400 text-xs truncate max-w-[150px]">{user.displayName || user.email}</p>
+                        </div>
+                        <button onClick={() => signOut(auth)} className="h-8 w-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                            <Icons.LogOut />
+                        </button>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 shadow-xl border border-slate-700/50 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+                        <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Patrimônio Total</p>
+                        <h2 className="text-3xl font-bold text-white mb-4 tracking-tight">{formatCurrency(summary.netWorth)}</h2>
+                        
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-700/50 pt-4">
+                            <div className="relative pl-3 border-l-2 border-emerald-500">
+                                <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">SAQUE DISPONÍVEL</p>
+                                <div className="flex items-baseline gap-1.5">
+                                    <p className="text-white text-base font-semibold">{formatCurrency(availableBalance)}</p>
+                                    {summary.netWorth > 0 && <span className="text-emerald-500/80 text-[10px] font-medium">{availablePct}%</span>}
+                                </div>
+                                <div className="w-full bg-slate-700/50 h-1 rounded-full mt-1.5">
+                                    <div className="bg-emerald-500 h-1 rounded-full" style={{ width: `${availablePct}%` }}></div>
+                                </div>
+                            </div>
+                            <div className="relative pl-3 border-l-2 border-amber-500">
+                                <p className="text-amber-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">BLOQUEADO</p>
+                                <div className="flex items-baseline gap-1.5">
+                                    <p className="text-white text-base font-semibold">{formatCurrency(lockedBalance)}</p>
+                                    {summary.netWorth > 0 && <span className="text-amber-500/80 text-[10px] font-medium">{lockedPct}%</span>}
+                                </div>
+                                <div className="w-full bg-slate-700/50 h-1 rounded-full mt-1.5">
+                                    <div className="bg-amber-500 h-1 rounded-full" style={{ width: `${lockedPct}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3">
+                        {upcomingRedemptions.length > 0 && (
+                            <div className="bg-slate-800 rounded-2xl p-4 shadow-lg border border-slate-700/50">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <div className="p-1 bg-amber-500/10 rounded text-amber-400"><Icons.Calendar /></div>
+                                    <h3 className="text-sm font-semibold text-white">Próximos Resgates</h3>
+                                </div>
+                                <div className="space-y-2">
+                                    {upcomingRedemptions.map((t) => (
+                                        <div key={t.id} className="flex justify-between items-center bg-slate-900/50 p-2 rounded-lg border border-slate-700/30">
+                                            <div className="min-w-0">
+                                                <p className="text-[10px] text-amber-400 font-bold">Libera: {formatDate(t.redemptionDate)}</p>
+                                                <p className="text-slate-300 text-xs truncate">{t.description || 'Investimento Fixo'}</p>
+                                            </div>
+                                            <span className="text-white font-medium text-xs whitespace-nowrap ml-2">{formatCurrency(t.amount)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="bg-slate-800 rounded-2xl p-4 shadow-lg border border-slate-700/50 flex flex-col justify-center">
+                            <h3 className="text-sm font-semibold text-white mb-2">Distribuição</h3>
+                            <div className="h-40 w-full">
+                                {data.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                        data={data}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={45}
+                                        outerRadius={65}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                        stroke="none"
+                                        >
+                                        {data.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.color} />
+                                        ))}
+                                        </Pie>
+                                        <Tooltip 
+                                            contentStyle={{ 
+                                                backgroundColor: '#0f172a', 
+                                                border: '1px solid #334155', 
+                                                borderRadius: '8px', 
+                                                color: '#fff', 
+                                                fontSize: '12px', 
+                                                padding: '8px',
+                                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                                            }}
+                                            itemStyle={{ color: '#e2e8f0' }}
+                                            formatter={(value) => formatCurrency(value)}
+                                        />
+                                        <Legend 
+                                            verticalAlign="middle" 
+                                            layout="vertical"
+                                            align="right"
+                                            iconType="circle"
+                                            iconSize={8}
+                                            wrapperStyle={{ fontSize: '10px' }}
+                                        />
+                                    </PieChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-500 text-xs">
+                                        Sem dados para o gráfico
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Component: TransactionForm ---
+        const TransactionForm = ({ transactions, onAdd, onEdit, onDelete }) => {
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [activeType, setActiveType] = useState(null);
+            const [editingId, setEditingId] = useState(null);
+            const [amount, setAmount] = useState('');
+            const [description, setDescription] = useState('');
+            const [redemptionDate, setRedemptionDate] = useState('');
+
+            const allowedTypes = [TransactionType.INVESTMENT_LIQUIDITY, TransactionType.INVESTMENT_FIXED];
+
+            const totals = useMemo(() => {
+                const acc = {};
+                allowedTypes.forEach(t => acc[t] = 0);
+                transactions.forEach(t => { if (acc[t.type] !== undefined) acc[t.type] += t.amount; });
+                return acc;
+            }, [transactions]);
+
+            const handleAmountChange = (e) => {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value === '') { setAmount(''); return; }
+                const numberValue = parseInt(value) / 100;
+                setAmount(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numberValue));
+            };
+
+            const parseAmount = (value) => {
+                if (!value) return 0;
+                return parseFloat(value.replace(/\./g, '').replace(',', '.'));
+            };
+
+            const handleAddNew = (type) => {
+                setActiveType(type); setEditingId(null); setAmount(''); setDescription(''); setRedemptionDate(''); setIsModalOpen(true);
+            };
+
+            const handleEdit = (transaction) => {
+                setActiveType(transaction.type);
+                setEditingId(transaction.id);
+                setAmount(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(transaction.amount));
+                setDescription(transaction.description);
+                setRedemptionDate(transaction.redemptionDate || '');
+                setIsModalOpen(true);
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const numericAmount = parseAmount(amount);
+                if (!numericAmount || !activeType) return;
+                if (activeType === TransactionType.INVESTMENT_FIXED && !redemptionDate) return;
+
+                if (editingId) onEdit(editingId, numericAmount, description, activeType, redemptionDate);
+                else onAdd(numericAmount, description, activeType, redemptionDate);
+                closeModal();
+            };
+
+            const handleDeleteLocal = () => {
+                if (editingId) { onDelete(editingId); closeModal(); }
+            }
+
+            const closeModal = () => { setIsModalOpen(false); setActiveType(null); setEditingId(null); };
+
+            const getTypeConfig = (type) => {
+                switch (type) {
+                    case TransactionType.INVESTMENT_LIQUIDITY: return { color: 'emerald', icon: <path d="M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />, label: 'Investimento com Liquidez' };
+                    case TransactionType.INVESTMENT_FIXED: return { color: 'amber', icon: <path d="M3 11h18v11H3z M7 11V7a5 5 0 0 1 10 0v4" />, label: 'Investimento sem Liquidez' };
+                    default: return { color: 'slate', icon: '', label: '' };
+                }
+            };
+
+            const isFixedInvestment = activeType === TransactionType.INVESTMENT_FIXED;
+            const isFormValid = amount && (!isFixedInvestment || redemptionDate);
+
+            return (
+                <div className="animate-fade-in space-y-6 pt-2 pb-20">
+                    <div className="flex items-center justify-between px-1">
+                        <h2 className="text-xl font-bold text-white">Minha Carteira</h2>
+                        <div className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-full border border-slate-700">Gerenciar</div>
+                    </div>
+
+                    <div className="space-y-6">
+                        {allowedTypes.map(type => {
+                            const config = getTypeConfig(type);
+                            const items = transactions.filter(t => t.type === type);
+                            const total = totals[type] || 0;
+
+                            return (
+                                <div key={type} className={`bg-slate-800/60 rounded-2xl border border-${config.color}-500/20 overflow-hidden flex flex-col shadow-lg`}>
+                                    <div className={`p-5 bg-gradient-to-r from-${config.color}-500/10 to-transparent border-b border-${config.color}-500/10`}>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className={`p-2 rounded-lg bg-${config.color}-500/20 text-${config.color}-400 mb-2 inline-block`}>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{config.icon}</svg>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className={`text-${config.color}-400 text-xs font-bold uppercase tracking-wider`}>Total Acumulado</p>
+                                                <p className="text-white text-xl font-bold">{formatCurrency(total)}</p>
+                                            </div>
+                                        </div>
+                                        <h3 className="text-white font-semibold text-lg">{config.label}</h3>
+                                    </div>
+                                    <div className="p-2 space-y-1 bg-slate-900/30 min-h-[60px]">
+                                        {items.length === 0 ? (
+                                            <div className="text-center py-4 text-slate-500 text-xs italic">Nenhum valor registrado.</div>
+                                        ) : (
+                                            items.map(t => (
+                                                <button key={t.id} onClick={() => handleEdit(t)} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-800 transition-colors group text-left border border-transparent hover:border-slate-700">
+                                                    <div className="min-w-0">
+                                                        <p className="text-white font-medium">{formatCurrency(t.amount)}</p>
+                                                        {t.description && <p className="text-slate-400 text-xs truncate">{t.description}</p>}
+                                                        {t.redemptionDate && <p className="text-amber-500 text-[10px] mt-0.5">Resgate: {t.redemptionDate.split('-').reverse().join('/')}</p>}
+                                                    </div>
+                                                    <div className="text-slate-600 group-hover:text-slate-300"><Icons.Edit /></div>
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                    <div className="p-3 border-t border-slate-700/50 bg-slate-800">
+                                        <button onClick={() => handleAddNew(type)} className={`w-full py-3 rounded-xl border border-dashed border-${config.color}-500/30 text-${config.color}-400 hover:bg-${config.color}-500/10 hover:border-${config.color}-500/50 transition-all flex items-center justify-center gap-2 text-sm font-semibold`}>
+                                            <Icons.Plus /> Adicionar Valor
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {isModalOpen && activeType && (
+                        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 sm:p-0">
+                            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity" onClick={closeModal}></div>
+                            <div className="relative bg-slate-900 w-full max-w-sm rounded-3xl border border-slate-700 shadow-2xl p-6 animate-fade-in-up">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-xl font-bold text-white">{editingId ? 'Editar Valor' : 'Novo Registro'}</h3>
+                                    {editingId && <button onClick={handleDeleteLocal} className="text-red-400 hover:text-red-300 p-2 bg-red-500/10 rounded-lg"><Icons.Trash /></button>}
+                                </div>
+                                <form onSubmit={handleSubmit} className="space-y-5">
+                                    <div className={`text-sm font-medium px-3 py-2 rounded-lg bg-${getTypeConfig(activeType).color}-500/10 text-${getTypeConfig(activeType).color}-400 inline-block mb-2`}>{getTypeConfig(activeType).label}</div>
+                                    {activeType === TransactionType.INVESTMENT_FIXED && (
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-amber-400 flex items-center gap-2"><Icons.Calendar /> Data de Resgate (Obrigatório)</label>
+                                            <input type="date" value={redemptionDate} onChange={(e) => setRedemptionDate(e.target.value)} className="w-full bg-slate-800 border border-amber-500/50 rounded-xl p-4 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all [color-scheme:dark]" required />
+                                        </div>
+                                    )}
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-slate-300">Valor (R$)</label>
+                                        <input type="tel" value={amount} autoFocus onChange={handleAmountChange} placeholder="0,00" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-2xl font-bold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" required />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-slate-300">Descrição <span className="text-slate-500 text-xs">(Opcional)</span></label>
+                                        <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Descreva aqui a que se refere..." className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={closeModal} className="flex-1 py-3 rounded-xl font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">Cancelar</button>
+                                        <button type="submit" disabled={!isFormValid} className={`flex-[2] py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 ${!isFormValid ? 'bg-slate-700 text-slate-500' : `bg-${getTypeConfig(activeType).color}-500 hover:bg-${getTypeConfig(activeType).color}-400`}`}>Salvar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- Component: Main App ---
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('home');
+            const [transactions, setTransactions] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            // Auth State Observer
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
+                    setLoading(false);
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // Firestore Real-time Listener (Only when logged in)
+            useEffect(() => {
+                if (user) {
+                    const q = query(
+                        collection(db, 'users', user.uid, 'transactions'),
+                        orderBy('createdAt', 'desc')
+                    );
+                    const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        setTransactions(items);
+                    });
+                    return () => unsubscribe();
+                } else {
+                    setTransactions([]);
+                }
+            }, [user]);
+
+            const handleAddTransaction = async (amount, description, type, redemptionDate) => {
+                if (!user) return;
+                try {
+                    await addDoc(collection(db, 'users', user.uid, 'transactions'), {
+                        amount, description, type, redemptionDate: redemptionDate || null, date: new Date().toISOString().split('T')[0], createdAt: serverTimestamp()
+                    });
+                } catch (e) { alert("Erro ao salvar."); console.error(e); }
+            };
+
+            const handleEditTransaction = async (id, amount, description, type, redemptionDate) => {
+                if (!user) return;
+                try {
+                    await updateDoc(doc(db, 'users', user.uid, 'transactions', id), {
+                        amount, description, type, redemptionDate: redemptionDate || null
+                    });
+                } catch (e) { alert("Erro ao atualizar."); console.error(e); }
+            };
+
+            const handleDeleteTransaction = async (id) => {
+                if (!user || !window.confirm('Excluir este registro?')) return;
+                try { await deleteDoc(doc(db, 'users', user.uid, 'transactions', id)); } catch (e) { alert("Erro ao excluir."); console.error(e); }
+            };
+
+            const summary = useMemo(() => {
+                return transactions.reduce((acc, t) => {
+                    const val = t.amount;
+                    if (t.type === TransactionType.INVESTMENT_LIQUIDITY) { acc.totalLiquidity += val; acc.netWorth += val; }
+                    else if (t.type === TransactionType.INVESTMENT_FIXED) { acc.totalFixedInvest += val; acc.netWorth += val; }
+                    return acc;
+                }, { totalLiquidity: 0, totalFixedInvest: 0, netWorth: 0 });
+            }, [transactions]);
+
+            if (loading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-emerald-500">Carregando...</div>;
+            if (!user) return <LoginScreen />;
+
+            return (
+                <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-emerald-500/30">
+                    <div className="max-w-md mx-auto min-h-screen bg-slate-900 shadow-2xl relative flex flex-col">
+                        <div className="flex-1 overflow-y-auto no-scrollbar pb-24 p-6">
+                            {activeTab === 'home' ? (
+                                <Dashboard summary={summary} recentTransactions={transactions} user={user} />
+                            ) : (
+                                <TransactionForm transactions={transactions} onAdd={handleAddTransaction} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction} />
+                            )}
+                        </div>
+                        {/* Navigation */}
+                        <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe pt-2 px-6 pb-6 shadow-2xl z-50">
+                            <div className="flex justify-around items-center max-w-md mx-auto">
+                                <button onClick={() => setActiveTab('home')} className="flex flex-col items-center gap-1 w-20">
+                                    <div className={`p-2.5 rounded-2xl transition-all duration-300 ${activeTab === 'home' ? 'bg-emerald-500/10 text-emerald-400 transform -translate-y-2' : 'text-slate-500'}`}><Icons.Home /></div>
+                                    <span className={`text-[10px] font-bold ${activeTab === 'home' ? 'text-emerald-400' : 'text-slate-500'}`}>Início</span>
+                                </button>
+                                <button onClick={() => setActiveTab('wallet')} className="flex flex-col items-center gap-1 w-20">
+                                    <div className={`p-2.5 rounded-2xl transition-all duration-300 ${activeTab === 'wallet' ? 'bg-emerald-500/10 text-emerald-400 transform -translate-y-2' : 'text-slate-500'}`}><Icons.Wallet /></div>
+                                    <span className={`text-[10px] font-bold ${activeTab === 'wallet' ? 'text-emerald-400' : 'text-slate-500'}`}>Carteira</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
