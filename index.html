@@ -25,19 +25,19 @@
         }
     </script>
 
-    <!-- Import Map -->
+    <!-- Import Map (CORRIGIDO) -->
     <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
-    "recharts": "https://esm.sh/recharts@2.10.3",
+    "firebase/app": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1"
   }
 }
 </script>
@@ -78,7 +78,6 @@
             orderBy,
             serverTimestamp 
         } from 'firebase/firestore';
-        import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
         // --- 1. FIREBASE CONFIGURATION ---
         const firebaseConfig = {
@@ -93,38 +92,26 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        
-        console.log("Firebase conectado e pronto.");
 
         // --- 2. ROBUST UTILITIES (THE TANK LOGIC) ---
 
-        /**
-         * safeParseFloat: O TANQUE
-         * Recebe: "1.250,00", "500", 1500.50, null, undefined, "texto"
-         * Retorna: Float (ex: 1250.00). Se der erro, retorna 0.
-         */
         const safeParseFloat = (value) => {
             if (typeof value === 'number') return isNaN(value) ? 0 : value;
             if (!value) return 0;
 
             try {
                 let str = value.toString();
-                // Remove tudo que não for numero, virgula, ponto ou traço
-                // Mas especificamente para o formato BR: remover pontos de milhar, trocar virgula por ponto
-                
-                // Passo 1: Remover pontos (separador de milhar no BR)
+                // 1. Remove pontos de milhar
                 str = str.replace(/\./g, ''); 
-                
-                // Passo 2: Trocar vírgula por ponto
+                // 2. Troca vírgula por ponto
                 str = str.replace(',', '.');
-                
-                // Passo 3: Manter apenas numeros e ponto decimal, e sinal negativo
+                // 3. Mantém apenas números e ponto
                 str = str.replace(/[^0-9.-]/g, '');
 
                 const parsed = parseFloat(str);
                 return isNaN(parsed) ? 0 : parsed;
             } catch (e) {
-                console.error("Erro critico no parser:", e);
+                console.error("Erro no parser:", e);
                 return 0;
             }
         };
@@ -144,47 +131,51 @@
             INVESTMENT_FIXED: 'Investimento sem Liquidez'
         };
 
-        // --- 3. ERROR BOUNDARY COMPONENT ---
-        class ErrorBoundary extends React.Component {
-            constructor(props) {
-                super(props);
-                this.state = { hasError: false, error: null };
-            }
+        // --- 3. COMPONENTS ---
 
-            static getDerivedStateFromError(error) {
-                return { hasError: true, error };
-            }
+        // Gráfico CSS Puro (Sem dependências externas para evitar erro)
+        const CssPieChart = ({ data }) => {
+            // Calcula porcentagens para o Conic Gradient
+            const total = data.reduce((acc, cur) => acc + cur.value, 0);
+            if (total === 0) return <div className="flex items-center justify-center h-full text-slate-500 text-xs">Sem dados</div>;
 
-            componentDidCatch(error, errorInfo) {
-                console.error("ErrorBoundary caught an error:", error, errorInfo);
-            }
+            let currentAngle = 0;
+            const gradientParts = data.map(item => {
+                const percent = (item.value / total) * 100;
+                const start = currentAngle;
+                const end = currentAngle + percent;
+                currentAngle = end;
+                return `${item.color} ${start}% ${end}%`;
+            });
 
-            render() {
-                if (this.state.hasError) {
-                    return (
-                        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-                            <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-6 max-w-sm w-full text-center">
-                                <h2 className="text-xl font-bold text-red-500 mb-2">Ops, algo deu errado.</h2>
-                                <p className="text-slate-300 text-sm mb-4">O aplicativo encontrou um erro inesperado.</p>
-                                <div className="bg-black/30 p-2 rounded text-xs text-red-300 font-mono mb-4 text-left overflow-auto max-h-32">
-                                    {this.state.error && this.state.error.toString()}
-                                </div>
-                                <button 
-                                    onClick={() => window.location.reload()}
-                                    className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold w-full"
-                                >
-                                    Recarregar Página
-                                </button>
-                            </div>
+            const gradient = `conic-gradient(${gradientParts.join(', ')})`;
+
+            return (
+                <div className="flex items-center gap-6 justify-center h-full">
+                    {/* O Gráfico */}
+                    <div className="relative w-32 h-32 rounded-full shadow-lg" style={{ background: gradient }}>
+                        {/* Buraco do Donut */}
+                        <div className="absolute inset-0 m-auto w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center border border-slate-700/50">
+                             <span className="text-[10px] text-slate-500 font-bold">DISTRIBUIÇÃO</span>
                         </div>
-                    );
-                }
+                    </div>
+                    {/* A Legenda */}
+                    <div className="flex flex-col gap-2">
+                        {data.map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.color }}></div>
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase">{item.name}</span>
+                                    <span className="text-xs text-white font-medium">{Math.round((item.value / total) * 100)}%</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
 
-                return this.props.children; 
-            }
-        }
-
-        // --- 4. ICONS ---
+        // Ícones SVG
         const Icons = {
             Home: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
             Wallet: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a2 2 0 0 1-2-2V9"/><path d="M7 15h0"/></svg>,
@@ -196,8 +187,7 @@
             Google: () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20px" height="20px"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
         };
 
-        // --- 5. COMPONENTS ---
-
+        // --- 4. TELA DE LOGIN ---
         const LoginScreen = () => {
             const [error, setError] = useState('');
             const [loading, setLoading] = useState(false);
@@ -210,7 +200,7 @@
                     await signInWithPopup(auth, provider);
                 } catch (err) {
                     console.error(err);
-                    setError('Erro ao entrar com Google. Tente novamente.');
+                    setError('Erro ao entrar. Tente novamente.');
                 } finally {
                     setLoading(false);
                 }
@@ -225,37 +215,25 @@
                             <h1 className="text-2xl font-bold text-white mb-2">Meu Caixa</h1>
                             <p className="text-slate-400 text-sm">Controle seu patrimônio</p>
                         </div>
-                        
-                        <div className="space-y-4 relative z-10">
-                            {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs text-center">{error}</div>}
-                            
-                            <button 
-                                onClick={handleGoogleLogin} 
-                                disabled={loading}
-                                className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
-                            >
-                                {loading ? (
-                                    <span className="text-sm">Carregando...</span>
-                                ) : (
-                                    <>
-                                        <Icons.Google />
-                                        <span>Entrar com Google</span>
-                                    </>
-                                )}
-                            </button>
-                        </div>
+                        {error && <div className="p-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs text-center">{error}</div>}
+                        <button 
+                            onClick={handleGoogleLogin} 
+                            disabled={loading}
+                            className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 relative z-10"
+                        >
+                            {loading ? <span className="text-sm">Carregando...</span> : <><Icons.Google /><span>Entrar com Google</span></>}
+                        </button>
                     </div>
                 </div>
             );
         };
 
+        // --- 5. DASHBOARD ---
         const Dashboard = ({ summary, recentTransactions, user }) => {
-            // SAFE CALCULATION ZONE
-            // Garantir que todos os valores sejam números válidos antes de renderizar
             const safeLiquidity = safeParseFloat(summary.totalLiquidity);
             const safeFixed = safeParseFloat(summary.totalFixedInvest);
             const safeNetWorth = safeParseFloat(summary.netWorth);
-            const displayNetWorth = safeNetWorth > 0 ? safeNetWorth : 1; // Evitar divisão por zero
+            const displayNetWorth = safeNetWorth > 0 ? safeNetWorth : 1;
 
             const data = [
                 { name: 'Liquidez', value: safeLiquidity, color: '#10b981' },
@@ -285,7 +263,7 @@
                             <h1 className="text-xl font-bold text-white tracking-tight leading-tight">Meu Caixa</h1>
                             <p className="text-slate-400 text-xs truncate max-w-[150px]">{user.displayName || user.email}</p>
                         </div>
-                        <button onClick={() => signOut(auth)} className="h-8 w-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors" aria-label="Sair">
+                        <button onClick={() => signOut(auth)} className="h-8 w-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
                             <Icons.LogOut />
                         </button>
                     </div>
@@ -341,53 +319,9 @@
                         )}
 
                         <div className="bg-slate-800 rounded-2xl p-4 shadow-lg border border-slate-700/50 flex flex-col justify-center">
-                            <h3 className="text-sm font-semibold text-white mb-2">Distribuição</h3>
+                            <h3 className="text-sm font-semibold text-white mb-4">Distribuição</h3>
                             <div className="h-40 w-full">
-                                {data.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                        data={data}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={45}
-                                        outerRadius={65}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                        stroke="none"
-                                        >
-                                        {data.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                        </Pie>
-                                        <Tooltip 
-                                            contentStyle={{ 
-                                                backgroundColor: '#0f172a', 
-                                                border: '1px solid #334155', 
-                                                borderRadius: '8px', 
-                                                color: '#fff', 
-                                                fontSize: '12px', 
-                                                padding: '8px',
-                                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-                                            }}
-                                            itemStyle={{ color: '#e2e8f0' }}
-                                            formatter={(value) => formatCurrency(value)}
-                                        />
-                                        <Legend 
-                                            verticalAlign="middle" 
-                                            layout="vertical"
-                                            align="right"
-                                            iconType="circle"
-                                            iconSize={8}
-                                            wrapperStyle={{ fontSize: '10px' }}
-                                        />
-                                    </PieChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <div className="flex items-center justify-center h-full text-slate-500 text-xs">
-                                        Sem dados para o gráfico
-                                    </div>
-                                )}
+                                <CssPieChart data={data} />
                             </div>
                         </div>
                     </div>
@@ -395,19 +329,18 @@
             );
         };
 
+        // --- 6. TRANSACTION FORM ---
         const TransactionForm = ({ transactions, onAdd, onEdit, onDelete }) => {
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [activeType, setActiveType] = useState(null);
             const [editingId, setEditingId] = useState(null);
             
-            // Local form state
             const [amountStr, setAmountStr] = useState('');
             const [description, setDescription] = useState('');
             const [redemptionDate, setRedemptionDate] = useState('');
 
             const allowedTypes = [TransactionType.INVESTMENT_LIQUIDITY, TransactionType.INVESTMENT_FIXED];
 
-            // Safe total calc
             const totals = useMemo(() => {
                 const acc = {};
                 allowedTypes.forEach(t => acc[t] = 0);
@@ -419,8 +352,6 @@
             }, [transactions]);
 
             const handleAmountChange = (e) => {
-                // VISUAL MASK ONLY (ATM Style)
-                // Stores formatted string in state, but logic will use safeParseFloat on save
                 const raw = e.target.value.replace(/\D/g, '');
                 if (raw === '') { setAmountStr(''); return; }
                 const numberVal = Number(raw) / 100;
@@ -434,7 +365,6 @@
             const handleEdit = (transaction) => {
                 setActiveType(transaction.type);
                 setEditingId(transaction.id);
-                // Convert stored float back to string for input mask
                 const val = safeParseFloat(transaction.amount);
                 setAmountStr(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val));
                 setDescription(transaction.description || '');
@@ -444,7 +374,7 @@
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                // CRITICAL: Use safeParseFloat before saving
+                // Limpeza antes de salvar
                 const numericAmount = safeParseFloat(amountStr);
                 
                 if (numericAmount <= 0 || !activeType) return;
@@ -562,14 +492,13 @@
             );
         };
 
-        // --- 6. MAIN APP COMPONENT ---
+        // --- 7. MAIN APP ---
         const App = () => {
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('home');
             const [transactions, setTransactions] = useState([]);
             const [loading, setLoading] = useState(true);
 
-            // Auth State Observer
             useEffect(() => {
                 const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
                     setUser(currentUser);
@@ -578,7 +507,6 @@
                 return () => unsubscribe();
             }, []);
 
-            // Firestore Real-time Listener
             useEffect(() => {
                 if (user) {
                     const q = query(
@@ -598,7 +526,6 @@
             const handleAddTransaction = async (amount, description, type, redemptionDate) => {
                 if (!user) return;
                 try {
-                    // amount ja vem sanitizado do component form como float
                     await addDoc(collection(db, 'users', user.uid, 'transactions'), {
                         amount: Number(amount), 
                         description, 
@@ -609,7 +536,7 @@
                     });
                 } catch (e) { 
                     alert("Erro ao salvar dados."); 
-                    console.error("Firebase write error:", e); 
+                    console.error(e); 
                 }
             };
 
@@ -624,7 +551,7 @@
                     });
                 } catch (e) { 
                     alert("Erro ao atualizar dados."); 
-                    console.error("Firebase update error:", e); 
+                    console.error(e); 
                 }
             };
 
@@ -633,12 +560,9 @@
                 try { await deleteDoc(doc(db, 'users', user.uid, 'transactions', id)); } catch (e) { console.error(e); }
             };
 
-            // Calculate Totals Safely
             const summary = useMemo(() => {
                 return transactions.reduce((acc, t) => {
-                    // SAFE GUARD: Ensure value is number
                     const val = safeParseFloat(t.amount); 
-                    
                     if (t.type === TransactionType.INVESTMENT_LIQUIDITY) { acc.totalLiquidity += val; acc.netWorth += val; }
                     else if (t.type === TransactionType.INVESTMENT_FIXED) { acc.totalFixedInvest += val; acc.netWorth += val; }
                     return acc;
@@ -649,32 +573,29 @@
             if (!user) return <LoginScreen />;
 
             return (
-                <ErrorBoundary>
-                    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-emerald-500/30">
-                        <div className="max-w-md mx-auto min-h-screen bg-slate-900 shadow-2xl relative flex flex-col">
-                            <div className="flex-1 overflow-y-auto no-scrollbar pb-24 p-6">
-                                {activeTab === 'home' ? (
-                                    <Dashboard summary={summary} recentTransactions={transactions} user={user} />
-                                ) : (
-                                    <TransactionForm transactions={transactions} onAdd={handleAddTransaction} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction} />
-                                )}
-                            </div>
-                            {/* Navigation */}
-                            <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe pt-2 px-6 pb-6 shadow-2xl z-50">
-                                <div className="flex justify-around items-center max-w-md mx-auto">
-                                    <button onClick={() => setActiveTab('home')} className="flex flex-col items-center gap-1 w-20">
-                                        <div className={`p-2.5 rounded-2xl transition-all duration-300 ${activeTab === 'home' ? 'bg-emerald-500/10 text-emerald-400 transform -translate-y-2' : 'text-slate-500'}`}><Icons.Home /></div>
-                                        <span className={`text-[10px] font-bold ${activeTab === 'home' ? 'text-emerald-400' : 'text-slate-500'}`}>Início</span>
-                                    </button>
-                                    <button onClick={() => setActiveTab('wallet')} className="flex flex-col items-center gap-1 w-20">
-                                        <div className={`p-2.5 rounded-2xl transition-all duration-300 ${activeTab === 'wallet' ? 'bg-emerald-500/10 text-emerald-400 transform -translate-y-2' : 'text-slate-500'}`}><Icons.Wallet /></div>
-                                        <span className={`text-[10px] font-bold ${activeTab === 'wallet' ? 'text-emerald-400' : 'text-slate-500'}`}>Carteira</span>
-                                    </button>
-                                </div>
+                <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-emerald-500/30">
+                    <div className="max-w-md mx-auto min-h-screen bg-slate-900 shadow-2xl relative flex flex-col">
+                        <div className="flex-1 overflow-y-auto no-scrollbar pb-24 p-6">
+                            {activeTab === 'home' ? (
+                                <Dashboard summary={summary} recentTransactions={transactions} user={user} />
+                            ) : (
+                                <TransactionForm transactions={transactions} onAdd={handleAddTransaction} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction} />
+                            )}
+                        </div>
+                        <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe pt-2 px-6 pb-6 shadow-2xl z-50">
+                            <div className="flex justify-around items-center max-w-md mx-auto">
+                                <button onClick={() => setActiveTab('home')} className="flex flex-col items-center gap-1 w-20">
+                                    <div className={`p-2.5 rounded-2xl transition-all duration-300 ${activeTab === 'home' ? 'bg-emerald-500/10 text-emerald-400 transform -translate-y-2' : 'text-slate-500'}`}><Icons.Home /></div>
+                                    <span className={`text-[10px] font-bold ${activeTab === 'home' ? 'text-emerald-400' : 'text-slate-500'}`}>Início</span>
+                                </button>
+                                <button onClick={() => setActiveTab('wallet')} className="flex flex-col items-center gap-1 w-20">
+                                    <div className={`p-2.5 rounded-2xl transition-all duration-300 ${activeTab === 'wallet' ? 'bg-emerald-500/10 text-emerald-400 transform -translate-y-2' : 'text-slate-500'}`}><Icons.Wallet /></div>
+                                    <span className={`text-[10px] font-bold ${activeTab === 'wallet' ? 'text-emerald-400' : 'text-slate-500'}`}>Carteira</span>
+                                </button>
                             </div>
                         </div>
                     </div>
-                </ErrorBoundary>
+                </div>
             );
         };
 
